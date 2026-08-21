@@ -1,0 +1,4 @@
+# dsh-media-gen bundle layer: register the plugin into the harness composition.
+- insert:
+    - id: dsh-media-gen
+      name: dsh-media-gen

@@ -1,0 +1,50 @@
+{
+  "name": "dsh-media-gen",
+  "version": "0.1.0",
+  "description": "Generate images and videos in DSH chat via OpenAI-compatible providers configured in Model settings; dedicated Settings menu and workspace media_gen output.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "image",
+    "video",
+    "media",
+    "generation",
+    "openai-compatible",
+    "settings"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ant404/dsh-media-gen.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ant404/dsh-media-gen/issues"
+  },
+  "homepage": "https://github.com/ant404/dsh-media-gen#readme",
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.6",
+    "@deepseek-ai/schemastery": "^3.18.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  }
+}
