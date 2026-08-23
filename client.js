@@ -803,6 +803,7 @@ window.__ModuleLoader__.load({
       try {
         var react = require('react')
         installMediaImagePolish()
+        installVideoFenceHydration()
         var Section = MediaGenSection(react)
         ctx.slots.inject('settings.section', function* () {
           yield ctx.slots.register(
