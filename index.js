@@ -1300,9 +1300,10 @@ export function apply(ctx, config = {}) {
     render: (_a, value) => [{ type: 'text', text: value }],
   }
 
-  // Structured video result. The assistant reply should render the video with a
-// dsh-ui fence (GenUI video component); the client tool.call.toolview stays as
-// an additional fallback for tool-result rendering.
+  // Structured video result. The assistant reply should embed the raw video JSON
+  // on its own line; the client hydrates it into a <video> player without any
+  // dsh-ui fence. The client tool.call.toolview stays as an additional fallback
+  // for tool-result rendering.
   const videoOutput = {
     schema: {
       type: 'object',

@@ -388,7 +388,17 @@ window.__ModuleLoader__.load({
     }
 
     function installVideoFenceHydration() {
-      if (window.__dshMediaGenVideoHydrated) return
+      // DSH hot-reloads client modules without resetting window flags. The old
+      // guard (window.__dshMediaGenVideoHydrated) prevented the fresh module
+      // from installing a new observer, leaving video JSON unhydrated. Always
+      // disconnect any previous observer and install a fresh one.
+      if (window.__dshMediaGenVideoObs) {
+        try {
+          window.__dshMediaGenVideoObs.disconnect()
+        } catch (error) {
+          /* ignore */
+        }
+      }
       window.__dshMediaGenVideoHydrated = true
       var processing = false
       var VIDEO_JSON_RE = /\{\s*"type"\s*:\s*"video"\s*,\s*"src"\s*:\s*"(https?:\/\/[^"]+)"[^}]*\}/
@@ -408,8 +418,84 @@ window.__ModuleLoader__.load({
         return video
       }
 
+      // The video JSON is only meant to render inside chat messages. Composer /
+      // editable areas must never be hydrated, otherwise typing or pasting the
+      // JSON in the input box would replace the text with a <video> element.
+      function isEditableInput(node) {
+        var el = node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement)
+        if (!el) return false
+        return !!el.closest(
+          'textarea, input, [contenteditable="true"], [contenteditable="plaintext-only"], [data-composer-seat], [data-composer-card], [role="textbox"]',
+        )
+      }
+
+      // The "thinking" disclosure must stay text-only; hydrating a player there
+      // leaks the video JSON into what is supposed to be the reasoning row.
+      function isReasoning(node) {
+        var el = node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement)
+        if (!el) return false
+        return !!el.closest(
+          '[data-variant="think"], [data-reasoning], .thinkBody, [class*="thinkBody"]',
+        )
+      }
+
+      // When the JSON is inside a Markdown code fence (```dsh-ui … ```),
+      // DSH's MarkdownText renders it with its CodeBlock component:
+      //   <div class="md-code-block">
+      //     <div class="...banner...">dsh-ui ... 复制</div>
+      //     <pre><code class="language-dsh-ui">…</code></pre>
+      //   </div>
+      // Replacing only the <code>/<pre> would leave the banner and the rounded
+      // "dsh-ui" code-block shell around the video. Find the whole md-code-block
+      // wrapper (or the nearest <pre>/<code> fallback) and replace it.
+      function blockToReplace(node) {
+        var el = node && node.parentNode
+        var fallback = null
+        while (el && el.nodeType === Node.ELEMENT_NODE) {
+          var className = (el.className || '').toString()
+          if (className && className.indexOf('md-code-block') !== -1) return el
+          if (el.tagName === 'PRE') {
+            if (!fallback) fallback = el
+          } else if (el.tagName === 'CODE') {
+            if (!fallback) {
+              var grand = el.parentNode
+              fallback = grand && grand.tagName === 'PRE' ? grand : el
+            }
+          }
+          el = el.parentNode
+        }
+        return fallback
+      }
+
+      // Shiki/highlighted code fences split the JSON across many <span>
+      // text nodes, so no single text node contains the full object. DSH's
+      // MarkdownText may also emit line breaks inside a paragraph. In both
+      // cases fall back to the enclosing element's textContent and replace
+      // that small container.
+      function tryHydrateContainer(node) {
+        var el = node && node.parentElement
+        if (!el) return false
+        var blockEl = el.closest ? el.closest('.md-code-block') : null
+        if (blockEl) {
+          var blockMatch = VIDEO_JSON_RE.exec(blockEl.textContent || '')
+          if (blockMatch) {
+            blockEl.replaceWith(videoFromSrc(blockMatch[1]))
+            return true
+          }
+        }
+        var text = (el.textContent || '').trim()
+        var match = VIDEO_JSON_RE.exec(text)
+        if (match && el.childNodes.length <= 3 && text.indexOf(match[0]) !== -1) {
+          el.replaceWith(videoFromSrc(match[1]))
+          return true
+        }
+        return false
+      }
+
       function hydrate(node) {
         if (processing || !node || node.nodeType !== Node.TEXT_NODE) return
+        if (isEditableInput(node)) return
+        if (isReasoning(node)) return
         var raw = node.data || ''
         var trimmed = raw.trim()
         var inner = trimmed
@@ -417,15 +503,19 @@ window.__ModuleLoader__.load({
           inner = inner.slice(8, -9)
         }
         var match = VIDEO_JSON_RE.exec(inner)
-        if (!match) return
+        if (!match) {
+          processing = true
+          try {
+            tryHydrateContainer(node)
+          } finally {
+            processing = false
+          }
+          return
+        }
         processing = true
         try {
-          var parent = node.parentNode
-          if (parent && parent.childNodes.length === 1) {
-            parent.replaceWith(videoFromSrc(match[1]))
-          } else {
-            node.replaceWith(videoFromSrc(match[1]))
-          }
+          var target = blockToReplace(node) || node
+          target.replaceWith(videoFromSrc(match[1]))
         } catch (error) {
           /* ignore */
         } finally {
@@ -457,6 +547,7 @@ window.__ModuleLoader__.load({
         }
       })
       observer.observe(document.body, { childList: true, subtree: true, characterData: true })
+      window.__dshMediaGenVideoObs = observer
     }
 
     function MediaGenSection(react) {
