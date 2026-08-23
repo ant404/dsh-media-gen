@@ -184,14 +184,27 @@ window.__ModuleLoader__.load({
       if (menu) menu.remove()
     }
 
-    function showMediaLightbox(src) {
+    function showMediaLightbox(src, kind) {
       closeMediaPopups()
       var overlay = document.createElement('div')
       overlay.className = 'dsh-media-gen-lightbox'
-      var img = document.createElement('img')
-      img.src = src
-      img.alt = 'large preview'
-      overlay.appendChild(img)
+      var media
+      if (kind === 'video') {
+        media = document.createElement('video')
+        media.src = src
+        media.controls = true
+        media.autoplay = true
+        media.style.maxWidth = '92vw'
+        media.style.maxHeight = '92vh'
+        media.style.borderRadius = '12px'
+        media.style.background = '#000'
+        media.style.boxShadow = '0 20px 60px rgba(0,0,0,.6)'
+      } else {
+        media = document.createElement('img')
+        media.src = src
+        media.alt = 'large preview'
+      }
+      overlay.appendChild(media)
       document.body.appendChild(overlay)
       var close = function () {
         overlay.remove()
@@ -324,22 +337,37 @@ window.__ModuleLoader__.load({
       style.id = 'dsh-media-gen-style'
       style.textContent =
         'img[src*="/media-gen/raw/"]{max-width:280px;max-height:280px;width:auto;height:auto;border-radius:10px;cursor:zoom-in;}' +
+        'video[src*="/media-gen/raw/"]{max-width:360px;max-height:360px;width:auto;height:auto;border-radius:10px;cursor:zoom-in;background:#000;display:block;}' +
         '.dsh-media-gen-lightbox{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:2147483000;display:flex;align-items:center;justify-content:center;cursor:zoom-out;}' +
-        '.dsh-media-gen-lightbox img{max-width:92vw;max-height:92vh;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.6);}' +
+        '.dsh-media-gen-lightbox img,.dsh-media-gen-lightbox video{max-width:92vw;max-height:92vh;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.6);}' +
         '.dsh-media-gen-menu{position:fixed;z-index:2147483001;min-width:120px;background:var(--dsw-alias-bg-layer-3,#fff);color:var(--dsw-alias-label-primary,#111);border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.35));border-radius:8px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,.25);}' +
         '.dsh-media-gen-menu button{display:block;width:100%;text-align:left;font:inherit;font-size:13px;line-height:1.6;padding:6px 10px;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer;}' +
         '.dsh-media-gen-menu button:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.15));}'
       document.head.appendChild(style)
 
+      function mediaSrcOf(target) {
+        if (!target) return ''
+        var src = target.getAttribute && target.getAttribute('src')
+        if (target.tagName === 'VIDEO' && !src) {
+          var source = target.querySelector('source')
+          src = source && source.getAttribute && source.getAttribute('src')
+        }
+        return src || ''
+      }
+
+      function isMediaTarget(target) {
+        return target && (target.tagName === 'IMG' || target.tagName === 'VIDEO') && /\/media-gen\/raw\//.test(mediaSrcOf(target))
+      }
+
       document.addEventListener(
         'click',
         function (e) {
           var t = e.target
-          if (t && t.tagName === 'IMG' && /\/media-gen\/raw\//.test(t.getAttribute('src') || '')) {
+          if (isMediaTarget(t)) {
             if (t.closest && t.closest('.dsh-media-gen-lightbox')) return
             e.preventDefault()
             e.stopPropagation()
-            showMediaLightbox(t.getAttribute('src'))
+            showMediaLightbox(mediaSrcOf(t), t.tagName === 'VIDEO' ? 'video' : 'image')
           }
         },
         true,
@@ -349,10 +377,10 @@ window.__ModuleLoader__.load({
         'contextmenu',
         function (e) {
           var t = e.target
-          if (t && t.tagName === 'IMG' && /\/media-gen\/raw\//.test(t.getAttribute('src') || '')) {
+          if (isMediaTarget(t)) {
             if (t.closest && t.closest('.dsh-media-gen-lightbox')) return
             e.preventDefault()
-            showMediaContextMenu(e.clientX, e.clientY, t.getAttribute('src'))
+            showMediaContextMenu(e.clientX, e.clientY, mediaSrcOf(t))
           }
         },
         true,
