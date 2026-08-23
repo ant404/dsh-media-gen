@@ -26,7 +26,7 @@ window.__ModuleLoader__.load({
         refreshed: '已刷新',
         error: '加载失败',
         outputDir: '输出目录',
-        outputDirHint: '相对路径基于当前工作区；默认 media_gen',
+        outputDirHint: '固定为当前工作区的 media_gen 目录，不可修改',
         t2i: '文生图模型',
         t2iHint: '图片生成（/images/generations）',
         i2i: '图生图模型',
@@ -55,7 +55,7 @@ window.__ModuleLoader__.load({
         refreshed: 'refreshed',
         error: 'load failed',
         outputDir: 'Output directory',
-        outputDirHint: 'Relative paths resolve against the current workspace; default media_gen',
+        outputDirHint: 'Fixed to <current workspace>/media_gen; not editable',
         t2i: 'Text-to-image model',
         t2iHint: 'Image generation (/images/generations)',
         i2i: 'Image-to-image model',
@@ -468,7 +468,6 @@ window.__ModuleLoader__.load({
           busyState[1](true)
           messageState[1](null)
           var payload = {
-            outputDir: draft.outputDir || 'media_gen',
             imageProvider: draft.imageProvider || '',
             imageModel: draft.imageModel || '',
             imageEditProvider: draft.imageEditProvider || '',
@@ -617,16 +616,17 @@ window.__ModuleLoader__.load({
               { style: rowContainer },
               h('div', { style: labelStyle }, t.outputDir),
               h('div', { style: hintStyle }, t.outputDirHint),
-              h('input', {
-                type: 'text',
-                value: draft.outputDir || 'media_gen',
-                disabled: busy,
-                onChange: function (event) {
-                  setField('outputDir', event.target.value)
+              h(
+                'div',
+                {
+                  style: Object.assign({}, inputStyle, {
+                    background: 'var(--dsw-alias-bg-layer-2, rgba(127,127,127,0.10))',
+                    color: 'var(--dsw-alias-label-secondary, inherit)',
+                    cursor: 'not-allowed',
+                  }),
                 },
-                style: inputStyle,
-                placeholder: 'media_gen',
-              }),
+                draft.outputDir || 'media_gen',
+              ),
             ),
             sectionRow(t.t2i, t.t2iHint, 'imageProvider', 'imageModel'),
             sectionRow(t.i2i, t.i2iHint, 'imageEditProvider', 'imageEditModel'),

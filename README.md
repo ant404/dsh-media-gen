@@ -59,7 +59,8 @@ dsh plugin --profile web add "D:/sysdir/Documents/deepseek-harness-workspace/dsh
 
 ```yaml
 dsh-media-gen:
-  outputDir: media_gen          # 相对当前工作区，或绝对路径
+  # 输出目录已固定为 <当前工作区>/media_gen，该配置项不再生效
+  outputDir: media_gen
   imageProvider: agnes-ai
   imageModel: agnes-image-2.1-flash
   imageEditProvider: agnes-ai

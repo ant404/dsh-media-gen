@@ -397,7 +397,8 @@ function currentConfig(ctx, config) {
     }
   })()
   return {
-    outputDir: typeof stored.outputDir === 'string' && stored.outputDir ? stored.outputDir : config.outputDir || 'media_gen',
+    // Fixed output directory: <current workspace>/media_gen (not editable).
+    outputDir: 'media_gen',
     imageProvider: typeof stored.imageProvider === 'string' ? stored.imageProvider : config.imageProvider || '',
     imageModel: typeof stored.imageModel === 'string' ? stored.imageModel : config.imageModel || '',
     imageEditProvider: typeof stored.imageEditProvider === 'string' ? stored.imageEditProvider : config.imageEditProvider || '',
@@ -416,7 +417,6 @@ async function writeConfig(ctx, patch) {
     throw new Error('settings service unavailable; edit cordis.yml config instead')
   }
   const allowed = new Set([
-    'outputDir',
     'imageProvider', 'imageModel',
     'imageEditProvider', 'imageEditModel',
     'videoProvider', 'videoModel',
@@ -729,10 +729,9 @@ async function rememberMediaInIndex(saved) {
 }
 
 async function saveMedia(ctx, exec, config, bytes, mime, ext, kind) {
-  const rawDir = String(config.outputDir || 'media_gen').trim()
-  const root = isAbsolute(rawDir)
-    ? resolve(rawDir)
-    : resolve(cwdOf(exec), rawDir)
+  // Output directory is intentionally fixed: <current workspace>/media_gen.
+  const rawDir = 'media_gen'
+  const root = resolve(cwdOf(exec), rawDir)
   await mkdir(root, { recursive: true })
   const name = `${kind}_${timestamp()}_${randomSuffix()}.${ext || (kind === 'video' ? 'mp4' : 'png')}`
   const abs = join(root, name)
