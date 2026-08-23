@@ -111,17 +111,25 @@ window.__ModuleLoader__.load({
       return m ? m[1] : ''
     }
 
+    function urlOf(text) {
+      if (typeof text !== 'string') return ''
+      var fromMarkdown = markdownUrlOf(text)
+      if (fromMarkdown) return fromMarkdown
+      var plain = /https?:\/\/[^\s)]+/.exec(text)
+      return plain ? plain[0] : ''
+    }
+
     function VideoToolCard(react) {
       var h = react.createElement
       return function VideoToolCardComponent(props) {
         var parsed = parseToolResult(props && props.block)
         var url = parsed && typeof parsed.url === 'string' ? parsed.url : ''
         if (!url && parsed && typeof parsed.__text === 'string') {
-          url = markdownUrlOf(parsed.__text)
+          url = urlOf(parsed.__text)
         }
         if (!url) {
           var fallback = props && props.block ? props.block.result : null
-          if (typeof fallback === 'string') fallback = markdownUrlOf(fallback) || fallback
+          if (typeof fallback === 'string') fallback = urlOf(fallback) || fallback
           return h(
             'div',
             { style: { fontSize: 13, color: 'var(--dsw-alias-label-tertiary)', padding: '4px 0' } },
