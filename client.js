@@ -387,6 +387,78 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function installVideoFenceHydration() {
+      if (window.__dshMediaGenVideoHydrated) return
+      window.__dshMediaGenVideoHydrated = true
+      var processing = false
+      var VIDEO_JSON_RE = /\{\s*"type"\s*:\s*"video"\s*,\s*"src"\s*:\s*"(https?:\/\/[^"]+)"[^}]*\}/
+
+      function videoFromSrc(src) {
+        var video = document.createElement('video')
+        video.src = src
+        video.controls = true
+        video.preload = 'metadata'
+        video.style.maxWidth = '360px'
+        video.style.maxHeight = '360px'
+        video.style.width = 'auto'
+        video.style.height = 'auto'
+        video.style.borderRadius = '10px'
+        video.style.background = '#000'
+        video.style.display = 'block'
+        return video
+      }
+
+      function hydrate(node) {
+        if (processing || !node || node.nodeType !== Node.TEXT_NODE) return
+        var raw = node.data || ''
+        var trimmed = raw.trim()
+        var inner = trimmed
+        if (inner.indexOf('<dsh-ui>') === 0 && inner.lastIndexOf('</dsh-ui>') === inner.length - 9) {
+          inner = inner.slice(8, -9)
+        }
+        var match = VIDEO_JSON_RE.exec(inner)
+        if (!match) return
+        processing = true
+        try {
+          var parent = node.parentNode
+          if (parent && parent.childNodes.length === 1) {
+            parent.replaceWith(videoFromSrc(match[1]))
+          } else {
+            node.replaceWith(videoFromSrc(match[1]))
+          }
+        } catch (error) {
+          /* ignore */
+        } finally {
+          processing = false
+        }
+      }
+
+      function scan(root) {
+        var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null)
+        var nodes = []
+        while (walker.nextNode()) nodes.push(walker.currentNode)
+        nodes.forEach(hydrate)
+      }
+
+      scan(document.body)
+
+      var observer = new MutationObserver(function (mutations) {
+        for (var i = 0; i < mutations.length; i++) {
+          var m = mutations[i]
+          if (m.type === 'childList') {
+            for (var j = 0; j < m.addedNodes.length; j++) {
+              var added = m.addedNodes[j]
+              if (added.nodeType === Node.TEXT_NODE) hydrate(added)
+              else if (added.nodeType === Node.ELEMENT_NODE) scan(added)
+            }
+          } else if (m.type === 'characterData') {
+            hydrate(m.target)
+          }
+        }
+      })
+      observer.observe(document.body, { childList: true, subtree: true, characterData: true })
+    }
+
     function MediaGenSection(react) {
       var h = react.createElement
 
