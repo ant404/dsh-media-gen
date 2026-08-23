@@ -196,23 +196,63 @@ window.__ModuleLoader__.load({
       document.addEventListener('keydown', onKey, true)
     }
 
-    function insertIntoComposer(text) {
+    function findComposerInput() {
       var seat = document.querySelector('[data-composer-seat]')
-      var el = seat
-        ? seat.querySelector('textarea')
-        : document.querySelector('textarea[data-phase]')
+      if (seat) {
+        var inSeat = seat.querySelector('textarea') || seat.querySelector('[contenteditable="true"], [contenteditable="plaintext-only"]')
+        if (inSeat) return inSeat
+      }
+      var fallback = document.querySelector('textarea[data-phase], [data-composer-card] textarea, [data-composer-card] [contenteditable="true"]')
+      if (fallback) return fallback
+      var active = document.activeElement
+      if (active && (active.tagName === 'TEXTAREA' || active.isContentEditable)) return active
+      return null
+    }
+
+    function insertIntoComposer(text) {
+      var el = findComposerInput()
       if (!el) return false
       el.focus()
-      var proto = window.HTMLTextAreaElement.prototype
-      var setter = Object.getOwnPropertyDescriptor(proto, 'value').set
-      var start = typeof el.selectionStart === 'number' ? el.selectionStart : el.value.length
-      var end = typeof el.selectionEnd === 'number' ? el.selectionEnd : el.value.length
-      var next = el.value.slice(0, start) + text + el.value.slice(end)
-      setter.call(el, next)
-      el.dispatchEvent(new Event('input', { bubbles: true }))
-      var pos = start + text.length
-      el.setSelectionRange(pos, pos)
-      return true
+      if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
+        var inserted = false
+        try {
+          inserted = document.execCommand('insertText', false, text)
+        } catch (error) {
+          inserted = false
+        }
+        if (inserted) {
+          el.dispatchEvent(new Event('input', { bubbles: true }))
+          return true
+        }
+        var proto = window.HTMLTextAreaElement.prototype
+        var setter = Object.getOwnPropertyDescriptor(proto, 'value').set
+        var start = typeof el.selectionStart === 'number' ? el.selectionStart : el.value.length
+        var end = typeof el.selectionEnd === 'number' ? el.selectionEnd : el.value.length
+        var next = el.value.slice(0, start) + text + el.value.slice(end)
+        setter.call(el, next)
+        el.dispatchEvent(new Event('input', { bubbles: true }))
+        var pos = start + text.length
+        try {
+          el.setSelectionRange(pos, pos)
+        } catch (error) {
+          /* ignore */
+        }
+        return true
+      }
+      if (el.isContentEditable) {
+        try {
+          document.execCommand('insertText', false, text)
+          return true
+        } catch (error) {
+          var selection = window.getSelection()
+          if (selection && selection.rangeCount > 0) {
+            selection.deleteFromDocument()
+            selection.getRangeAt(0).insertNode(document.createTextNode(text))
+            return true
+          }
+        }
+      }
+      return false
     }
 
     function showMediaContextMenu(x, y, src) {
