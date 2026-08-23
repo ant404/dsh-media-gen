@@ -1325,7 +1325,13 @@ export function apply(ctx, config = {}) {
       if (value && typeof value.provider === 'string') {
         lines.push(`Provider：${value.provider}${value.model ? `，模型：${value.model}` : ''}`)
       }
-      lines.push('视频已由工具结果显示：回复正文中不要写 <dsh-ui>、dsh-ui 代码围栏、<video> 或视频链接，也不要重复显示视频。')
+      lines.push('请在回复正文中添加以下 dsh-ui 围栏来显示视频（把下面 text 代码块里的内容原样复制出来，不要包含外层 text 标记）：')
+      lines.push('````text')
+      lines.push('```dsh-ui')
+      lines.push(JSON.stringify({ type: 'video', src: url, alt: '生成的视频' }))
+      lines.push('```')
+      lines.push('````')
+      lines.push('不要写 <dsh-ui>、<video> 或视频链接；dsh-ui 围栏只能出现在回复正文中一次。')
       return [{ type: 'text', text: lines.join('\n') }]
     },
   }
@@ -1396,7 +1402,7 @@ export function apply(ctx, config = {}) {
   // ── Tool: video generation ─────────────────────────────────────────────
   ctx.tools.register(defineTool({
     name: 'media_gen_video',
-    description: 'Generate a video from text (or from an image when image is provided) using the OpenAI-compatible video model configured for this plugin (Settings → 媒体生成 → 视频生成). This tool ALWAYS uses the configured video provider/model — do NOT pick or pass a provider/model yourself; change the model in Settings → 媒体生成 if needed. Uses /videos (or /videos/generations) with async status polling when needed. image accepts a local path (relative to the current workspace) or an http(s) URL; local files and loopback URLs are automatically converted to a base64 data URL so a just-generated local image can be used for image-to-video. The generated file is saved into the current workspace media_gen directory (configurable), and the tool result automatically renders the video card in the tool result area. In your reply text, write NO video markup at all: do NOT write <dsh-ui>, do NOT write a dsh-ui code fence, do NOT write <video>, and do NOT paste the video URL as a link. If the tool result card is missing, call the render_ui tool (a real tool call) — never put its JSON into your reply text. duration (seconds) and size/resolution are passed through when supported by the gateway.',
+    description: 'Generate a video from text (or from an image when image is provided) using the OpenAI-compatible video model configured for this plugin (Settings → 媒体生成 → 视频生成). This tool ALWAYS uses the configured video provider/model — do NOT pick or pass a provider/model yourself; change the model in Settings → 媒体生成 if needed. Uses /videos (or /videos/generations) with async status polling when needed. image accepts a local path (relative to the current workspace) or an http(s) URL; local files and loopback URLs are automatically converted to a base64 data URL so a just-generated local image can be used for image-to-video. The generated file is saved into the current workspace media_gen directory (configurable); the tool result provides url/path but does NOT render the video. In your reply text, you MUST include a dsh-ui code fence exactly like this to display the video: ```dsh-ui {"type":"video","src":"<url value from the tool result>"} ``` — write it as a fenced code block with language dsh-ui (three backticks, not angle brackets). Do NOT write <dsh-ui>, do NOT write <video>, and do NOT paste the URL as a plain link. Do NOT call render_ui. duration (seconds) and size/resolution are passed through when supported by the gateway.',
     parameters: {
       prompt: { type: 'string', required: true, description: 'Video description / prompt (English usually works best).' },
       image: { type: 'string', description: 'Optional source image for image-to-video: local path, http(s) URL, or the just-generated image path/loopback URL from media_gen_image.' },

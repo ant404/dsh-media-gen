@@ -732,7 +732,6 @@ window.__ModuleLoader__.load({
         var react = require('react')
         installMediaImagePolish()
         var Section = MediaGenSection(react)
-        var VideoCard = VideoToolCard(react)
         ctx.slots.inject('settings.section', function* () {
           yield ctx.slots.register(
             {
@@ -747,21 +746,6 @@ window.__ModuleLoader__.load({
               },
             },
             Section,
-          )
-        })
-        // Render generated videos inline with native <video controls> and a
-        // download link (right-click → Save video as also works).
-        ctx.slots.inject('tool.call.toolview', function* () {
-          yield ctx.slots.register(
-            {
-              name: 'tool.call.toolview',
-              key: 'media_gen_video',
-              priority: -10,
-              inject: function () {
-                return {}
-              },
-            },
-            VideoCard,
           )
         })
       } catch (error) {
