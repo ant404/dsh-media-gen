@@ -47,7 +47,7 @@ dsh plugin --profile web add "D:/sysdir/Documents/deepseek-harness-workspace/dsh
 | `media_edit_image` | 图生图/图片编辑（`/images/edits`，传本地路径或 http(s) URL） |
 | `media_gen_video` | 视频生成（`/videos` 或 `/videos/generations`，自动轮询异步任务）；结果在聊天中以内嵌 `<video>` 播放，带下载链接 |
 
-工具都支持可选 `provider` / `model` 参数临时覆盖设置里的默认值。
+所有媒体生成工具**严格使用「设置 → 媒体生成」里配置的 Provider / Model**，不支持在工具调用里临时换模型；要换模型请到设置菜单修改。
 
 ## 图片交互
 

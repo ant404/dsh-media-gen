@@ -1334,7 +1334,7 @@ export function apply(ctx, config = {}) {
   // ── Tool: list configured providers/models ─────────────────────────────
   ctx.tools.register(defineTool({
     name: 'media_list_providers',
-    description: 'List the OpenAI-compatible providers and models configured in DSH Model settings that can be used for image/video generation. Use this before generating when the user asks which providers/models are available or after they changed model settings. Optional probe=true fetches /models from each provider to refresh the model list (slower).',
+    description: 'List the OpenAI-compatible providers and models configured in DSH Model settings that can be used for image/video generation. This is INFORMATIONAL ONLY — do NOT use it to choose a provider/model for media_gen_image / media_edit_image / media_gen_video. Those tools ALWAYS use the models configured in Settings → 媒体生成; changing them requires the user to update Settings, not a tool call. Use this only when the user asks which providers/models are available or after they changed model settings. Optional probe=true fetches /models from each provider to refresh the model list (slower).',
     parameters: {
       probe: { type: 'boolean', description: 'Whether to query each provider /models endpoint to refresh the model list (default false).' },
     },
@@ -1348,11 +1348,9 @@ export function apply(ctx, config = {}) {
   // ── Tool: text-to-image ────────────────────────────────────────────────
   ctx.tools.register(defineTool({
     name: 'media_gen_image',
-    description: 'Generate an image from text using the OpenAI-compatible image model configured for this plugin (Settings → 媒体生成 → 文生图). The generated file is saved into the current workspace media_gen directory (configurable). The tool result contains the exact markdown image line inside a code block: you MUST copy that line VERBATIM (without the surrounding code fences) into your reply text so the image renders inline in the chat. Do NOT call vision_present, read_image, show_image_file or any other tool to display this image — the markdown line you copy into your reply is the display mechanism. Optional provider/model override a single call; size accepts e.g. 1024x1024 or 16:9.',
+    description: 'Generate an image from text using the OpenAI-compatible image model configured for this plugin (Settings → 媒体生成 → 文生图). This tool ALWAYS uses the configured text-to-image provider/model — do NOT pick or pass a provider/model yourself; change the model in Settings → 媒体生成 if needed. The generated file is saved into the current workspace media_gen directory (configurable). The tool result contains the exact markdown image line inside a code block: you MUST copy that line VERBATIM (without the surrounding code fences) into your reply text so the image renders inline in the chat. Do NOT call vision_present, read_image, show_image_file or any other tool to display this image — the markdown line you copy into your reply is the display mechanism. size accepts e.g. 1024x1024 or 16:9.',
     parameters: {
       prompt: { type: 'string', required: true, description: 'Image description / prompt (English usually works best).' },
-      provider: { type: 'string', description: 'Optional provider id from DSH Model settings (overrides the configured text-to-image provider).' },
-      model: { type: 'string', description: 'Optional model id for that provider (overrides the configured text-to-image model).' },
       size: { type: 'string', description: 'Optional size/aspect, e.g. 1024x1024 or 16:9. Omit to use the gateway default.' },
     },
     output: toolOutput,
@@ -1374,12 +1372,10 @@ export function apply(ctx, config = {}) {
   // ── Tool: image-to-image (edits) ───────────────────────────────────────
   ctx.tools.register(defineTool({
     name: 'media_edit_image',
-    description: 'Edit / transform an existing image using the OpenAI-compatible image edit model configured for this plugin (Settings → 媒体生成 → 图生图). Sends the image to the provider /images/edits endpoint and saves the result into media_gen. image accepts a local path (relative to the current workspace) or an http(s) URL. The tool result contains the exact markdown image line inside a code block: copy it VERBATIM (without the surrounding code fences) into your reply so the image renders inline. Do NOT call vision_present, read_image, show_image_file or any other tool to display this image — the markdown line you copy into your reply is the display mechanism. Optional provider/model override a single call; size accepts e.g. 1024x1024.',
+    description: 'Edit / transform an existing image using the OpenAI-compatible image edit model configured for this plugin (Settings → 媒体生成 → 图生图). This tool ALWAYS uses the configured image-to-image provider/model — do NOT pick or pass a provider/model yourself; change the model in Settings → 媒体生成 if needed. Sends the image to the provider /images/edits endpoint and saves the result into media_gen. image accepts a local path (relative to the current workspace) or an http(s) URL. The tool result contains the exact markdown image line inside a code block: copy it VERBATIM (without the surrounding code fences) into your reply so the image renders inline. Do NOT call vision_present, read_image, show_image_file or any other tool to display this image — the markdown line you copy into your reply is the display mechanism. size accepts e.g. 1024x1024.',
     parameters: {
       prompt: { type: 'string', required: true, description: 'Instruction describing the edit, e.g. "make it a watercolor painting".' },
       image: { type: 'string', required: true, description: 'Local file path or http(s) URL of the source image.' },
-      provider: { type: 'string', description: 'Optional provider id from DSH Model settings (overrides the configured image-to-image provider).' },
-      model: { type: 'string', description: 'Optional model id for that provider (overrides the configured image-to-image model).' },
       size: { type: 'string', description: 'Optional output size, e.g. 1024x1024. Omit to use the gateway default.' },
     },
     output: toolOutput,
@@ -1401,12 +1397,10 @@ export function apply(ctx, config = {}) {
   // ── Tool: video generation ─────────────────────────────────────────────
   ctx.tools.register(defineTool({
     name: 'media_gen_video',
-    description: 'Generate a video from text (or from an image when image is provided) using the OpenAI-compatible video model configured for this plugin (Settings → 媒体生成 → 视频生成). Uses /videos (or /videos/generations) with async status polling when needed. image accepts a local path (relative to the current workspace) or an http(s) URL; local files and loopback URLs are automatically converted to a base64 data URL so a just-generated local image can be used for image-to-video. The generated file is saved into the current workspace media_gen directory (configurable), and the tool result renders the video automatically in the tool result area (a playable <video> card provided by this plugin). Do NOT call render_ui and do NOT emit a dsh-ui fence unless the tool result video is not visible; if it is not visible, you MAY fall back to render_ui with {"type":"video","src":"<url>"}. Do NOT write raw <video> HTML. Optional provider/model override a single call; duration (seconds) and size/resolution are passed through when supported by the gateway.',
+    description: 'Generate a video from text (or from an image when image is provided) using the OpenAI-compatible video model configured for this plugin (Settings → 媒体生成 → 视频生成). This tool ALWAYS uses the configured video provider/model — do NOT pick or pass a provider/model yourself; change the model in Settings → 媒体生成 if needed. Uses /videos (or /videos/generations) with async status polling when needed. image accepts a local path (relative to the current workspace) or an http(s) URL; local files and loopback URLs are automatically converted to a base64 data URL so a just-generated local image can be used for image-to-video. The generated file is saved into the current workspace media_gen directory (configurable), and the tool result renders the video automatically in the tool result area (a playable <video> card provided by this plugin). Do NOT call render_ui and do NOT emit a dsh-ui fence unless the tool result video is not visible; if it is not visible, you MAY fall back to render_ui with {"type":"video","src":"<url>"}. Do NOT write raw <video> HTML. duration (seconds) and size/resolution are passed through when supported by the gateway.',
     parameters: {
       prompt: { type: 'string', required: true, description: 'Video description / prompt (English usually works best).' },
       image: { type: 'string', description: 'Optional source image for image-to-video: local path, http(s) URL, or the just-generated image path/loopback URL from media_gen_image.' },
-      provider: { type: 'string', description: 'Optional provider id from DSH Model settings (overrides the configured video provider).' },
-      model: { type: 'string', description: 'Optional model id for that provider (overrides the configured video model).' },
       duration: { type: 'number', description: 'Optional video duration in seconds, if the gateway supports it.' },
       size: { type: 'string', description: 'Optional resolution/size, e.g. 1280x720, if the gateway supports it.' },
       resolution: { type: 'string', description: 'Optional resolution hint, if the gateway supports it.' },
