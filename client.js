@@ -164,6 +164,153 @@ window.__ModuleLoader__.load({
       }
     }
 
+    function mediaFilenameFromSrc(src) {
+      var m = /\/media-gen\/raw\/([^/?#]+)/.exec(src || '')
+      return m ? decodeURIComponent(m[1]) : ''
+    }
+
+    function closeMediaPopups() {
+      var lightbox = document.querySelector('.dsh-media-gen-lightbox')
+      if (lightbox) lightbox.remove()
+      var menu = document.querySelector('.dsh-media-gen-menu')
+      if (menu) menu.remove()
+    }
+
+    function showMediaLightbox(src) {
+      closeMediaPopups()
+      var overlay = document.createElement('div')
+      overlay.className = 'dsh-media-gen-lightbox'
+      var img = document.createElement('img')
+      img.src = src
+      img.alt = 'large preview'
+      overlay.appendChild(img)
+      document.body.appendChild(overlay)
+      var close = function () {
+        overlay.remove()
+        document.removeEventListener('keydown', onKey, true)
+      }
+      var onKey = function (e) {
+        if (e.key === 'Escape') close()
+      }
+      overlay.addEventListener('click', close)
+      document.addEventListener('keydown', onKey, true)
+    }
+
+    function insertIntoComposer(text) {
+      var seat = document.querySelector('[data-composer-seat]')
+      var el = seat
+        ? seat.querySelector('textarea')
+        : document.querySelector('textarea[data-phase]')
+      if (!el) return false
+      el.focus()
+      var proto = window.HTMLTextAreaElement.prototype
+      var setter = Object.getOwnPropertyDescriptor(proto, 'value').set
+      var start = typeof el.selectionStart === 'number' ? el.selectionStart : el.value.length
+      var end = typeof el.selectionEnd === 'number' ? el.selectionEnd : el.value.length
+      var next = el.value.slice(0, start) + text + el.value.slice(end)
+      setter.call(el, next)
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+      var pos = start + text.length
+      el.setSelectionRange(pos, pos)
+      return true
+    }
+
+    function showMediaContextMenu(x, y, src) {
+      closeMediaPopups()
+      var filename = mediaFilenameFromSrc(src)
+      var menu = document.createElement('div')
+      menu.className = 'dsh-media-gen-menu'
+      menu.style.left = Math.max(4, Math.min(x, window.innerWidth - 140)) + 'px'
+      menu.style.top = Math.max(4, Math.min(y, window.innerHeight - 60)) + 'px'
+
+      var citeBtn = document.createElement('button')
+      citeBtn.type = 'button'
+      citeBtn.textContent = '引用'
+      citeBtn.addEventListener('click', function () {
+        menu.remove()
+        if (!filename) return
+        fetch('/media-gen/path?name=' + encodeURIComponent(filename))
+          .then(function (r) {
+            return r.json().then(function (body) {
+              if (!r.ok) throw new Error(body.error || 'load failed')
+              return body.path
+            })
+          })
+          .then(function (path) {
+            if (!insertIntoComposer(path)) {
+              if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                navigator.clipboard.writeText(path).catch(function () {})
+              }
+              console.warn('[dsh-media-gen] composer not found; path = ' + path)
+            }
+          })
+          .catch(function (error) {
+            console.error('[dsh-media-gen] cite failed: ' + (error && error.message ? error.message : error))
+          })
+      })
+      menu.appendChild(citeBtn)
+      document.body.appendChild(menu)
+
+      var cleanup = function () {
+        menu.remove()
+        document.removeEventListener('click', outside, true)
+        document.removeEventListener('contextmenu', outside, true)
+        document.removeEventListener('keydown', onKey, true)
+      }
+      var outside = function (e) {
+        if (!menu.contains(e.target)) cleanup()
+      }
+      var onKey = function (e) {
+        if (e.key === 'Escape') cleanup()
+      }
+      setTimeout(function () {
+        document.addEventListener('click', outside, true)
+        document.addEventListener('contextmenu', outside, true)
+        document.addEventListener('keydown', onKey, true)
+      }, 0)
+    }
+
+    function installMediaImagePolish() {
+      if (document.getElementById('dsh-media-gen-style')) return
+      var style = document.createElement('style')
+      style.id = 'dsh-media-gen-style'
+      style.textContent =
+        'img[src*="/media-gen/raw/"]{max-width:280px;max-height:280px;width:auto;height:auto;border-radius:10px;cursor:zoom-in;}' +
+        '.dsh-media-gen-lightbox{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:2147483000;display:flex;align-items:center;justify-content:center;cursor:zoom-out;}' +
+        '.dsh-media-gen-lightbox img{max-width:92vw;max-height:92vh;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.6);}' +
+        '.dsh-media-gen-menu{position:fixed;z-index:2147483001;min-width:120px;background:var(--dsw-alias-bg-layer-3,#fff);color:var(--dsw-alias-label-primary,#111);border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.35));border-radius:8px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,.25);}' +
+        '.dsh-media-gen-menu button{display:block;width:100%;text-align:left;font:inherit;font-size:13px;line-height:1.6;padding:6px 10px;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer;}' +
+        '.dsh-media-gen-menu button:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.15));}'
+      document.head.appendChild(style)
+
+      document.addEventListener(
+        'click',
+        function (e) {
+          var t = e.target
+          if (t && t.tagName === 'IMG' && /\/media-gen\/raw\//.test(t.getAttribute('src') || '')) {
+            if (t.closest && t.closest('.dsh-media-gen-lightbox')) return
+            e.preventDefault()
+            e.stopPropagation()
+            showMediaLightbox(t.getAttribute('src'))
+          }
+        },
+        true,
+      )
+
+      document.addEventListener(
+        'contextmenu',
+        function (e) {
+          var t = e.target
+          if (t && t.tagName === 'IMG' && /\/media-gen\/raw\//.test(t.getAttribute('src') || '')) {
+            if (t.closest && t.closest('.dsh-media-gen-lightbox')) return
+            e.preventDefault()
+            showMediaContextMenu(e.clientX, e.clientY, t.getAttribute('src'))
+          }
+        },
+        true,
+      )
+    }
+
     function MediaGenSection(react) {
       var h = react.createElement
 
@@ -507,6 +654,7 @@ window.__ModuleLoader__.load({
     function apply(ctx) {
       try {
         var react = require('react')
+        installMediaImagePolish()
         var Section = MediaGenSection(react)
         var VideoCard = VideoToolCard(react)
         ctx.slots.inject('settings.section', function* () {

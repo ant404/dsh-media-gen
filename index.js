@@ -1115,6 +1115,59 @@ function registerRoutes(ctx, config) {
     },
   })
 
+  // Resolve a generated media filename back to its absolute path on disk.
+  // Used by the right-click → "引用" menu to insert the local path into the
+  // conversation input.
+  ctx.webServer.register({
+    name: 'dsh-media-gen-path',
+    kind: 'exact',
+    path: '/media-gen/path',
+    handler: async (req, res) => {
+      if (!isTrustedRequest(req)) return send(res, 403, { error: 'request refused: loopback only' })
+      try {
+        const url = new URL(req.url ?? '/', 'http://x')
+        const id = decodeURIComponent(url.searchParams.get('name') || '')
+        if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) {
+          send(res, 400, { error: 'bad media id' })
+          return
+        }
+        let abs = ''
+        const mem = mediaStore.get(id)
+        if (mem && typeof mem.abs === 'string') abs = mem.abs
+        if (!abs) {
+          const files = await readMediaIndex()
+          if (files[id] && typeof files[id].abs === 'string') abs = files[id].abs
+        }
+        if (!abs) {
+          const cfg = currentConfig(ctx, config)
+          const rawDir = String(cfg.outputDir || 'media_gen').trim()
+          const candidates = []
+          if (isAbsolute(rawDir)) candidates.push(resolve(rawDir, id))
+          else {
+            candidates.push(resolve(process.cwd(), rawDir, id))
+            candidates.push(resolve(process.cwd(), 'media_gen', id))
+          }
+          for (const candidate of candidates) {
+            try {
+              await readFile(candidate)
+              abs = candidate
+              break
+            } catch {
+              // try next candidate
+            }
+          }
+        }
+        if (!abs) {
+          send(res, 404, { error: 'not found' })
+          return
+        }
+        send(res, 200, { name: id, path: abs })
+      } catch (error) {
+        send(res, 500, { error: String(error?.message ?? error) })
+      }
+    },
+  })
+
   ctx.webServer.register({
     name: 'dsh-media-gen-raw',
     kind: 'prefix',

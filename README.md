@@ -49,6 +49,12 @@ dsh plugin --profile web add "D:/sysdir/Documents/deepseek-harness-workspace/dsh
 
 工具都支持可选 `provider` / `model` 参数临时覆盖设置里的默认值。
 
+## 图片交互
+
+- 生成的图片在会话里以**小图**显示（最大约 280px）。
+- **左键点击图片**：放大查看，点背景或按 `Esc` 关闭。
+- **右键点击图片**：弹出「引用」菜单；点击后会把该图片的**本地文件路径**插入到对话输入框，方便接着做图生图/图生视频。
+
 ## 配置项（也可写在 cordis.yml / 设置菜单）
 
 ```yaml
