@@ -53,7 +53,6 @@ export const Config = Schema.object({
   displayHost: Schema.string().default(''),
 })
 
-const NS = 'dsh-media-gen'
 const MIME_BY_EXT = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -131,14 +130,6 @@ function preferredCatalogBaseUrl(models) {
 // small helpers
 // ---------------------------------------------------------------------------
 
-function settingsOf(ctx) {
-  try {
-    return ctx.get('settings')
-  } catch {
-    return null
-  }
-}
-
 function configEditorOf(ctx) {
   try {
     return ctx.get('configEditor')
@@ -155,9 +146,9 @@ function credentialsOf(ctx) {
   }
 }
 
-// Read one config field. On DSH >= 0.2.0 an editable field is handed to the
-// plugin as a live volatile reference (`{ get() }`) so a saved value reaches
-// the running plugin without a reload; older cores pass the plain value.
+// Read one config field. Editable fields are declared `.volatile()`, so the
+// runtime hands the plugin a live reference (`{ get() }`) that updates in place
+// when a saved value is applied — no plugin reload.
 function readConfigValue(config, key, fallback) {
   let value
   try {
@@ -176,27 +167,18 @@ function readConfigNumber(config, key, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
-// Provider routes declared by the composition's `llm-pi-ai` entry. DSH >= 0.2.0
-// owns plugin configuration through the profile's config editor; older cores
-// exposed the same data through the `settings` namespace.
+// Provider routes declared by the composition's `llm-pi-ai` entry, read through
+// the profile's config editor.
 function llmProviders(ctx) {
   const editor = configEditorOf(ctx)
-  if (editor && typeof editor.entries === 'function') {
-    try {
-      const entry = editor.entries().find((row) => row?.options?.id === 'llm-pi-ai')
-      const providers = entry?.options?.config?.providers
-      if (providers && typeof providers === 'object') return providers
-    } catch {
-      // fall through to the legacy namespace below
-    }
-  }
+  if (!editor || typeof editor.entries !== 'function') return null
   try {
-    const providers = settingsOf(ctx)?.get?.('llm-pi-ai')?.providers
-    if (providers && typeof providers === 'object') return providers
+    const entry = editor.entries().find((row) => row?.options?.id === 'llm-pi-ai')
+    const providers = entry?.options?.config?.providers
+    return providers && typeof providers === 'object' ? providers : null
   } catch {
-    // no provider source available
+    return null
   }
-  return null
 }
 
 function sleep(ms) {
@@ -412,31 +394,19 @@ function isTrustedRequest(req) {
 // settings / configuration
 // ---------------------------------------------------------------------------
 
-// DSH >= 0.2.0 replaced the old `settings.register(namespace, schema, base)`
-// seam with Config-derived forms: this plugin's own Config is the schema, the
-// profile entry id is the namespace, and only `.volatile()` fields are
-// editable. This plugin ships its own settings page, so it opts out of the
-// auto-generated one. The legacy registration is kept for older cores.
-function configureSettingsPresentation(ctx, config) {
+// Editable configuration is declared with `.volatile()` in Config; the settings
+// service projects those fields into a form keyed by this profile entry's id.
+// The plugin ships its own settings page (client.js + the /media-gen routes), so
+// it opts out of the auto-generated form.
+function configureSettingsPresentation(ctx) {
   if (typeof ctx.inject !== 'function') return
   ctx.inject(['settings'], (child) => {
     const settings = child?.settings
-    if (!settings) return
-    if (typeof settings.configure === 'function') {
-      try {
-        child.effect(() => settings.configure({ auto: false }, ctx.fiber))
-      } catch (error) {
-        console.error(`[dsh-media-gen] settings presentation skipped: ${error}`)
-      }
-      return
-    }
-    if (typeof settings.register !== 'function') return
+    if (!settings || typeof settings.configure !== 'function') return
     try {
-      settings.register(NS, Config, { base: currentConfig(ctx, config) })
+      child.effect(() => settings.configure({ auto: false }, ctx.fiber))
     } catch (error) {
-      // Already registered or service unavailable: the accessors below surface
-      // a real error only if the namespace genuinely cannot be used.
-      console.error(`[dsh-media-gen] settings namespace skipped: ${error}`)
+      console.error(`[dsh-media-gen] settings presentation skipped: ${error}`)
     }
   })
 }
@@ -476,24 +446,15 @@ async function writeConfig(ctx, patch) {
   }
   if (Object.keys(clean).length === 0) return
 
-  // DSH >= 0.2.0: persist through the profile's config editor, which validates
-  // the whole candidate, preserves YAML comments and `!!js` expressions, and
-  // reconciles the live composition.
+  // Persist through the profile's config editor: it validates the whole
+  // candidate, preserves YAML comments and `!!js` expressions, writes the
+  // profile patch, and reconciles the live composition.
   const editor = configEditorOf(ctx)
   const entry = ctx.fiber?.entry
-  if (editor && typeof editor.edit === 'function' && entry != null) {
-    await editor.edit(entry, (current) => ({ ...current, ...clean }))
-    return
+  if (!editor || typeof editor.edit !== 'function' || entry == null) {
+    throw new Error('the profile config editor is unavailable; edit the profile cordis.patch.yml instead')
   }
-
-  // Legacy core: the settings namespace owns the same values.
-  const settings = settingsOf(ctx)
-  if (settings && typeof settings.update === 'function') {
-    await settings.update(NS, clean)
-    return
-  }
-
-  throw new Error('no configuration writer is available; edit the profile cordis.patch.yml instead')
+  await editor.edit(entry, (current) => ({ ...current, ...clean }))
 }
 
 // ---------------------------------------------------------------------------
@@ -1128,8 +1089,14 @@ function registerRoutes(ctx, config) {
     `${displayHost}/media-gen/raw/${encodeURIComponent(saved.name)}`
   const imageUrl = (saved) =>
     `${displayHost}/media-gen/raw/${encodeURIComponent(saved.name)}`
-  const imageMarkdown = (saved, alt) =>
-    `![${alt}](${imageUrl(saved)})`
+  // The chat resolves a Markdown image destination as a workspace file path and
+  // rewrites it to the authenticated `api/file` route. An absolute http(s) URL
+  // is not a local path, so the preview fails and the transcript shows
+  // "图片无法预览". Author the image as a workspace-relative path instead:
+  // saveMedia() always writes into <session cwd>/media_gen, which is exactly
+  // what the session resolves. The raw route stays for direct links and for
+  // media already embedded in older transcripts.
+  const imageMarkdown = (saved, alt) => `![${alt}](media_gen/${saved.name})`
   const videoMarkdown = (saved, alt) =>
     `[🎬 ${alt}](${videoUrl(saved)})`
 
@@ -1326,7 +1293,7 @@ export function apply(ctx, config = {}) {
   // plugin renders its own settings page (client.js + /media-gen/config), so it
   // opts out of the auto-generated form; older cores register the namespace so
   // the settings UI can serve it.
-  configureSettingsPresentation(ctx, config)
+  configureSettingsPresentation(ctx)
 
   const routes = registerRoutes(ctx, config)
 
@@ -1396,10 +1363,10 @@ export function apply(ctx, config = {}) {
       routes.remember(saved)
       const markdown = routes.imageMarkdown(saved, '生成的图片')
       return (
-        `已生成图片。\n` +
-        `图片地址：${routes.imageUrl(saved)}\n` +
+        `已生成图片，已保存到：${saved.abs}\n` +
         `请在回复正文中原样插入下面这行（不要包含代码块标记）以在聊天中显示图片：\n` +
         '```\n' + markdown + '\n```\n' +
+        `聊天会把该相对路径解析成工作区文件并交给 DSH 的图片预览；不要改写成 http 链接或绝对路径。\n` +
         `不要调用 vision_present / read_image / show_image_file 等工具展示，直接在回复中插入即可。\n` +
         `（Provider：${provider.id}，模型：${model}）`
       )
@@ -1421,10 +1388,10 @@ export function apply(ctx, config = {}) {
       routes.remember(saved)
       const markdown = routes.imageMarkdown(saved, '生成的图片')
       return (
-        `已生成图片。\n` +
-        `图片地址：${routes.imageUrl(saved)}\n` +
+        `已生成图片，已保存到：${saved.abs}\n` +
         `请在回复正文中原样插入下面这行（不要包含代码块标记）以在聊天中显示图片：\n` +
         '```\n' + markdown + '\n```\n' +
+        `聊天会把该相对路径解析成工作区文件并交给 DSH 的图片预览；不要改写成 http 链接或绝对路径。\n` +
         `不要调用 vision_present / read_image / show_image_file 等工具展示，直接在回复中插入即可。\n` +
         `（Provider：${provider.id}，模型：${model}）`
       )

@@ -68,9 +68,11 @@ dsh plugin --profile web add "D:/sysdir/Documents/deepseek-harness-workspace/dsh
 
 ## 图片交互
 
-- 生成的图片在会话里以**小图**显示（最大约 280px）。
-- **左键点击图片**：放大查看，点背景或按 `Esc` 关闭。
+- 生成的图片在会话里以**小图**显示（最大约 280px），由 DSH 聊天自身的图片组件渲染。
+- **左键点击图片**：DSH 原生的「查看大图」预览（点背景或按 `Esc` 关闭）。
 - **右键点击图片**：弹出「引用」菜单；点击后会把该图片的**本地文件路径**插入到对话输入框，方便接着做图生图/图生视频。
+
+> 图片在回复正文里以**工作区相对路径**书写（`![…](media_gen/xxx.png)`）。桌面版页面运行在 `dsh-app://app/` 协议下，聊天会把该路径解析为工作区文件并改写成同源的 `api/file?path=…` 路由；写成 `http://127.0.0.1:…/media-gen/raw/…` 属于跨源图片，会被拦截并显示「图片无法预览」。
 
 ## 配置项（也可写在 profile 的 cordis.patch.yml）
 
@@ -92,16 +94,17 @@ dsh plugin --profile web add "D:/sysdir/Documents/deepseek-harness-workspace/dsh
 
 > Provider / Model 也可以直接在「设置 → 媒体生成」界面里选并保存，会写入当前 profile 的配置补丁，**热生效、无需重启**。
 
-## 与 DSH 版本的兼容性
+## 实现要点（面向 DSH 0.2.x）
 
-插件同时支持两代宿主配置机制：
-
-| 宿主版本 | 配置声明 | 配置读写 | Provider 来源 |
-| --- | --- | --- | --- |
-| **0.2.0 及以上**（含 `0.2.0-rc.2`） | Config 里可编辑字段标 `.volatile()`，配置表单由 DSH 从 Config 派生；插件用 `settings.configure({ auto: false })` 声明自绘设置页 | 读 `config.x.get()` 的实时引用；写 `configEditor.edit()`，校验后写入 profile 补丁并重新组合 | `configEditor.entries()` 找 `llm-pi-ai` 条目 |
-| 0.1.x（旧版） | `settings.register(namespace, schema, base)` | `settings.get(ns)` / `settings.update(ns, patch)` | `settings.get('llm-pi-ai')` |
-
-两条路径都在运行时自动选择，因此同一份代码在旧 profile 上仍然可用。
+| 环节 | 做法 |
+| --- | --- |
+| 可编辑字段 | Config 里标 `.volatile()`；运行时通过 `config.x.get()` 读实时值，保存后无需重载插件 |
+| 设置页 | 插件自带页面（`client.js` + `/media-gen/*` 路由），用 `settings.configure({ auto: false })` 关掉 DSH 自动生成的表单 |
+| 保存配置 | `configEditor.edit(entry, …)`：校验整份候选、保留 YAML 注释与 `!!js` 表达式、写入 profile 补丁并重新组合 |
+| Provider 来源 | `configEditor.entries()` 找组合中的 `llm-pi-ai` 条目，读它的 `providers` |
+| 凭据 | `ctx.credentials.resolve(apiKeyEnv)`，API Key 永不进入浏览器 |
+| 图片显示 | 回复正文写工作区相对路径，交给 DSH 的图片组件与预览 |
+| 视频显示 | 工具结果回传 `{"type":"video","src":…}`，由插件客户端把它替换成 `<video>` 播放器 |
 
 ## 视频接口兼容说明
 

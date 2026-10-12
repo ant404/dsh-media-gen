@@ -172,9 +172,24 @@ window.__ModuleLoader__.load({
       }
     }
 
+    // Resolve the generated file name behind a media element. Two shapes occur:
+    // the plugin's own raw route (videos, and images embedded in older
+    // transcripts) and the Desktop chat's workspace-file route
+    // (`dsh-app://app/api/file?path=…`), which is how a Markdown image authored
+    // as `media_gen/<name>` reaches the DOM.
     function mediaFilenameFromSrc(src) {
-      var m = /\/media-gen\/raw\/([^/?#]+)/.exec(src || '')
-      return m ? decodeURIComponent(m[1]) : ''
+      if (!src) return ''
+      var raw = /\/media-gen\/raw\/([^/?#]+)/.exec(src)
+      if (raw) return decodeURIComponent(raw[1])
+      try {
+        var url = new URL(src, document.baseURI)
+        var path = url.searchParams.get('path') || ''
+        var m = /[\\/]media_gen[\\/]([^\\/]+)$/.exec(path)
+        if (m) return decodeURIComponent(m[1])
+      } catch (error) {
+        /* not a parseable URL */
+      }
+      return ''
     }
 
     function closeMediaPopups() {
@@ -336,7 +351,7 @@ window.__ModuleLoader__.load({
       var style = document.createElement('style')
       style.id = 'dsh-media-gen-style'
       style.textContent =
-        'img[src*="/media-gen/raw/"]{max-width:280px;max-height:280px;width:auto;height:auto;border-radius:10px;cursor:zoom-in;}' +
+        'img[src*="/media-gen/raw/"],img[src*="api/file"][src*="media_gen"]{max-width:280px;max-height:280px;width:auto;height:auto;border-radius:10px;}' +
         'video[src*="/media-gen/raw/"]{max-width:360px;max-height:360px;width:auto;height:auto;border-radius:10px;cursor:zoom-in;background:#000;display:block;}' +
         '.dsh-media-gen-lightbox{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:2147483000;display:flex;align-items:center;justify-content:center;cursor:zoom-out;}' +
         '.dsh-media-gen-lightbox img,.dsh-media-gen-lightbox video{max-width:92vw;max-height:92vh;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.6);}' +
@@ -355,20 +370,22 @@ window.__ModuleLoader__.load({
         return src || ''
       }
 
-      function isMediaTarget(target) {
-        return target && (target.tagName === 'IMG' || target.tagName === 'VIDEO') && /\/media-gen\/raw\//.test(mediaSrcOf(target))
+      function mediaNameOf(target) {
+        if (!target || (target.tagName !== 'IMG' && target.tagName !== 'VIDEO')) return ''
+        return mediaFilenameFromSrc(mediaSrcOf(target))
       }
 
+      // Images keep the chat's own preview button, so the lightbox here only
+      // serves videos — the chat renders bare video JSON through this plugin.
       document.addEventListener(
         'click',
         function (e) {
           var t = e.target
-          if (isMediaTarget(t)) {
-            if (t.closest && t.closest('.dsh-media-gen-lightbox')) return
-            e.preventDefault()
-            e.stopPropagation()
-            showMediaLightbox(mediaSrcOf(t), t.tagName === 'VIDEO' ? 'video' : 'image')
-          }
+          if (!t || t.tagName !== 'VIDEO' || !mediaNameOf(t)) return
+          if (t.closest && t.closest('.dsh-media-gen-lightbox')) return
+          e.preventDefault()
+          e.stopPropagation()
+          showMediaLightbox(mediaSrcOf(t), 'video')
         },
         true,
       )
@@ -377,11 +394,10 @@ window.__ModuleLoader__.load({
         'contextmenu',
         function (e) {
           var t = e.target
-          if (isMediaTarget(t)) {
-            if (t.closest && t.closest('.dsh-media-gen-lightbox')) return
-            e.preventDefault()
-            showMediaContextMenu(e.clientX, e.clientY, mediaSrcOf(t))
-          }
+          if (!mediaNameOf(t)) return
+          if (t.closest && t.closest('.dsh-media-gen-lightbox')) return
+          e.preventDefault()
+          showMediaContextMenu(e.clientX, e.clientY, mediaSrcOf(t))
         },
         true,
       )
