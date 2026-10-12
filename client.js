@@ -350,9 +350,11 @@ window.__ModuleLoader__.load({
       if (document.getElementById('dsh-media-gen-style')) return
       var style = document.createElement('style')
       style.id = 'dsh-media-gen-style'
+      // Images are deliberately left untouched: the chat renders Markdown
+      // images itself (its own sizing, its own zoom-in preview button and
+      // lightbox). Only the video player this plugin creates needs styling.
       style.textContent =
-        'img[src*="/media-gen/raw/"],img[src*="api/file"][src*="media_gen"]{max-width:280px;max-height:280px;width:auto;height:auto;border-radius:10px;}' +
-        'video[src*="/media-gen/raw/"]{max-width:360px;max-height:360px;width:auto;height:auto;border-radius:10px;cursor:zoom-in;background:#000;display:block;}' +
+        'video[src*="/media-gen/raw/"],video[src*="api/file"]{max-width:360px;max-height:360px;width:auto;height:auto;border-radius:10px;cursor:zoom-in;background:#000;display:block;}' +
         '.dsh-media-gen-lightbox{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:2147483000;display:flex;align-items:center;justify-content:center;cursor:zoom-out;}' +
         '.dsh-media-gen-lightbox img,.dsh-media-gen-lightbox video{max-width:92vw;max-height:92vh;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.6);}' +
         '.dsh-media-gen-menu{position:fixed;z-index:2147483001;min-width:120px;background:var(--dsw-alias-bg-layer-3,#fff);color:var(--dsw-alias-label-primary,#111);border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.35));border-radius:8px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,.25);}' +
@@ -417,11 +419,28 @@ window.__ModuleLoader__.load({
       }
       window.__dshMediaGenVideoHydrated = true
       var processing = false
-      var VIDEO_JSON_RE = /\{\s*"type"\s*:\s*"video"\s*,\s*"src"\s*:\s*"(https?:\/\/[^"]+)"[^}]*\}/
+      // src is a forward-slash local path (the Desktop page is served from
+      // dsh-app://app/, so an http://127.0.0.1 media URL would be cross-origin
+      // and the plugin's loopback guard answers 403). Legacy messages may still
+      // carry an http URL; mediaSrc() passes those through unchanged.
+      var VIDEO_JSON_RE = /\{\s*"type"\s*:\s*"video"\s*,\s*"src"\s*:\s*"([^"]+)"[^}]*\}/
+
+      // Resolve a local path through the chat's own file route, which is
+      // same-origin and serves exactly the same bytes.
+      function mediaSrc(src) {
+        var value = String(src || '')
+        if (!value) return ''
+        if (/^(?:https?|dsh-app|blob|data):/i.test(value)) return value
+        try {
+          return new URL('api/file?path=' + encodeURIComponent(value), document.baseURI).href
+        } catch (error) {
+          return value
+        }
+      }
 
       function videoFromSrc(src) {
         var video = document.createElement('video')
-        video.src = src
+        video.src = mediaSrc(src)
         video.controls = true
         video.preload = 'metadata'
         video.style.maxWidth = '360px'

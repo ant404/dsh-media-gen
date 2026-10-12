@@ -181,6 +181,18 @@ function llmProviders(ctx) {
   }
 }
 
+// Hand the generated file to DSH's own delivery surface. `present` appends a
+// `deliverables/presented` session event, which the chat renders as a file card
+// with preview and open actions — the Desktop way to show a final product.
+function presentHint(path, description) {
+  return (
+    `最后请调用 present 工具，把该文件作为交付物展示（DSH 会在回合末尾渲染带预览/打开动作的交付卡片）：\n` +
+    '```\n' +
+    `present(files: [{ path: ${JSON.stringify(path)}, description: ${JSON.stringify(description)} }])\n` +
+    '```'
+  )
+}
+
 function sleep(ms) {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, ms))
 }
@@ -1321,16 +1333,19 @@ export function apply(ctx, config = {}) {
       },
     },
     render: (_a, value) => {
-      const url = value && typeof value.url === 'string' ? value.url : ''
-      const path = value && typeof value.path === 'string' ? value.path : ''
-      const lines = [`视频地址：${url}`]
+      // Forward slashes keep the JSON free of backslash escapes, so the client's
+      // hydration regex can read the path verbatim.
+      const path = value && typeof value.path === 'string' ? value.path.replace(/\\/g, '/') : ''
+      const lines = []
       if (path) lines.push(`已保存：${path}`)
       if (value && typeof value.provider === 'string') {
         lines.push(`Provider：${value.provider}${value.model ? `，模型：${value.model}` : ''}`)
       }
       lines.push('请在回复正文中单独一行写入以下 JSON（dsh-media-gen 会自动把它替换成视频播放器）：')
-      lines.push(JSON.stringify({ type: 'video', src: url, alt: '生成的视频' }))
+      lines.push(JSON.stringify({ type: 'video', src: path, alt: '生成的视频' }))
+      lines.push('src 必须就是上面那个本地路径，不要改写成 http 链接：桌面版页面在 dsh-app:// 协议下，http://127.0.0.1 的视频属于跨源请求会被拒绝，只有本地路径才会被解析成同源文件地址。')
       lines.push('不要加 dsh-ui 围栏、不要写 <dsh-ui>、<video> 或视频链接，也不要调用 render_ui。')
+      lines.push(presentHint(path, '生成的视频'))
       return [{ type: 'text', text: lines.join('\n') }]
     },
   }
@@ -1368,6 +1383,7 @@ export function apply(ctx, config = {}) {
         '```\n' + markdown + '\n```\n' +
         `聊天会把该相对路径解析成工作区文件并交给 DSH 的图片预览；不要改写成 http 链接或绝对路径。\n` +
         `不要调用 vision_present / read_image / show_image_file 等工具展示，直接在回复中插入即可。\n` +
+        `${presentHint(saved.abs, '生成的图片')}\n` +
         `（Provider：${provider.id}，模型：${model}）`
       )
     },
@@ -1393,6 +1409,7 @@ export function apply(ctx, config = {}) {
         '```\n' + markdown + '\n```\n' +
         `聊天会把该相对路径解析成工作区文件并交给 DSH 的图片预览；不要改写成 http 链接或绝对路径。\n` +
         `不要调用 vision_present / read_image / show_image_file 等工具展示，直接在回复中插入即可。\n` +
+        `${presentHint(saved.abs, '生成的图片')}\n` +
         `（Provider：${provider.id}，模型：${model}）`
       )
     },
