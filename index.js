@@ -25,24 +25,31 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 export const name = 'dsh-media-gen'
 export const inject = ['tools', 'webServer']
 
+// Fields the user edits from Settings → 媒体生成 are declared `.volatile()`.
+// On DSH >= 0.2.0 a volatile field is projected as a live reference
+// (`config.x.get()`), so a saved value reaches the running plugin without a
+// reload; it is also what makes the field writable through the profile's
+// config editor. `outputDir` and `displayHost` stay ordinary fields: the
+// output directory is fixed to the workspace's media_gen and the display host
+// is a deployment-level override, so neither belongs in the settings form.
 export const Config = Schema.object({
   // Output directory. Relative paths are resolved against the current
   // workspace of the session; absolute paths are used as-is.
   outputDir: Schema.string().default('media_gen'),
   // Default provider/model for text-to-image.
-  imageProvider: Schema.string().default(''),
-  imageModel: Schema.string().default(''),
+  imageProvider: Schema.string().default('').volatile(),
+  imageModel: Schema.string().default('').volatile(),
   // Default provider/model for image-to-image (images/edits).
-  imageEditProvider: Schema.string().default(''),
-  imageEditModel: Schema.string().default(''),
+  imageEditProvider: Schema.string().default('').volatile(),
+  imageEditModel: Schema.string().default('').volatile(),
   // Default provider/model for video generation.
-  videoProvider: Schema.string().default(''),
-  videoModel: Schema.string().default(''),
+  videoProvider: Schema.string().default('').volatile(),
+  videoModel: Schema.string().default('').volatile(),
   // Optional custom path suffix for video generation, e.g. "/videos" or
   // "/v1/videos/generations". Empty = auto (try /videos/generations then /videos).
-  videoEndpoint: Schema.string().default(''),
-  timeoutMs: Schema.number().default(120000),
-  videoTimeoutMs: Schema.number().default(600000),
+  videoEndpoint: Schema.string().default('').volatile(),
+  timeoutMs: Schema.number().default(120000).volatile(),
+  videoTimeoutMs: Schema.number().default(600000).volatile(),
   displayHost: Schema.string().default(''),
 })
 
@@ -132,12 +139,64 @@ function settingsOf(ctx) {
   }
 }
 
+function configEditorOf(ctx) {
+  try {
+    return ctx.get('configEditor')
+  } catch {
+    return null
+  }
+}
+
 function credentialsOf(ctx) {
   try {
     return ctx.get('credentials')
   } catch {
     return null
   }
+}
+
+// Read one config field. On DSH >= 0.2.0 an editable field is handed to the
+// plugin as a live volatile reference (`{ get() }`) so a saved value reaches
+// the running plugin without a reload; older cores pass the plain value.
+function readConfigValue(config, key, fallback) {
+  let value
+  try {
+    const raw = config?.[key]
+    value = raw && typeof raw.get === 'function' ? raw.get() : raw
+  } catch {
+    value = undefined
+  }
+  if (value === undefined || value === null || value === '') return fallback
+  return value
+}
+
+function readConfigNumber(config, key, fallback) {
+  const value = readConfigValue(config, key, undefined)
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+// Provider routes declared by the composition's `llm-pi-ai` entry. DSH >= 0.2.0
+// owns plugin configuration through the profile's config editor; older cores
+// exposed the same data through the `settings` namespace.
+function llmProviders(ctx) {
+  const editor = configEditorOf(ctx)
+  if (editor && typeof editor.entries === 'function') {
+    try {
+      const entry = editor.entries().find((row) => row?.options?.id === 'llm-pi-ai')
+      const providers = entry?.options?.config?.providers
+      if (providers && typeof providers === 'object') return providers
+    } catch {
+      // fall through to the legacy namespace below
+    }
+  }
+  try {
+    const providers = settingsOf(ctx)?.get?.('llm-pi-ai')?.providers
+    if (providers && typeof providers === 'object') return providers
+  } catch {
+    // no provider source available
+  }
+  return null
 }
 
 function sleep(ms) {
@@ -353,69 +412,52 @@ function isTrustedRequest(req) {
 // settings / configuration
 // ---------------------------------------------------------------------------
 
-// Registers our settings namespace. DSH settings tabs and the client settings
-// service refuse to serve an unknown namespace ("settings namespace ... is not
-// registered"), so this must happen before the settings UI or tools read/write
-// anything. Called eagerly from apply() and lazily from every accessor as a
-// safety net (settings may not be available at apply time on some profiles).
-function ensureSettings(ctx, config) {
-  const settings = settingsOf(ctx)
-  if (!settings || typeof settings.register !== 'function') return settings
-  try {
-    settings.register(
-      NS,
-      Config,
-      {
-        base: {
-          outputDir: config.outputDir || 'media_gen',
-          imageProvider: config.imageProvider || '',
-          imageModel: config.imageModel || '',
-          imageEditProvider: config.imageEditProvider || '',
-          imageEditModel: config.imageEditModel || '',
-          videoProvider: config.videoProvider || '',
-          videoModel: config.videoModel || '',
-          videoEndpoint: config.videoEndpoint || '',
-          timeoutMs: config.timeoutMs || 120000,
-          videoTimeoutMs: config.videoTimeoutMs || 600000,
-        },
-      },
-    )
-  } catch {
-    // Already registered or service unavailable: the accessors below will
-    // surface a real error only if the namespace genuinely cannot be used.
-  }
-  return settings
+// DSH >= 0.2.0 replaced the old `settings.register(namespace, schema, base)`
+// seam with Config-derived forms: this plugin's own Config is the schema, the
+// profile entry id is the namespace, and only `.volatile()` fields are
+// editable. This plugin ships its own settings page, so it opts out of the
+// auto-generated one. The legacy registration is kept for older cores.
+function configureSettingsPresentation(ctx, config) {
+  if (typeof ctx.inject !== 'function') return
+  ctx.inject(['settings'], (child) => {
+    const settings = child?.settings
+    if (!settings) return
+    if (typeof settings.configure === 'function') {
+      try {
+        child.effect(() => settings.configure({ auto: false }, ctx.fiber))
+      } catch (error) {
+        console.error(`[dsh-media-gen] settings presentation skipped: ${error}`)
+      }
+      return
+    }
+    if (typeof settings.register !== 'function') return
+    try {
+      settings.register(NS, Config, { base: currentConfig(ctx, config) })
+    } catch (error) {
+      // Already registered or service unavailable: the accessors below surface
+      // a real error only if the namespace genuinely cannot be used.
+      console.error(`[dsh-media-gen] settings namespace skipped: ${error}`)
+    }
+  })
 }
 
 function currentConfig(ctx, config) {
-  ensureSettings(ctx, config)
-  const stored = (() => {
-    try {
-      return settingsOf(ctx)?.get(NS) || {}
-    } catch {
-      return {}
-    }
-  })()
   return {
     // Fixed output directory: <current workspace>/media_gen (not editable).
     outputDir: 'media_gen',
-    imageProvider: typeof stored.imageProvider === 'string' ? stored.imageProvider : config.imageProvider || '',
-    imageModel: typeof stored.imageModel === 'string' ? stored.imageModel : config.imageModel || '',
-    imageEditProvider: typeof stored.imageEditProvider === 'string' ? stored.imageEditProvider : config.imageEditProvider || '',
-    imageEditModel: typeof stored.imageEditModel === 'string' ? stored.imageEditModel : config.imageEditModel || '',
-    videoProvider: typeof stored.videoProvider === 'string' ? stored.videoProvider : config.videoProvider || '',
-    videoModel: typeof stored.videoModel === 'string' ? stored.videoModel : config.videoModel || '',
-    videoEndpoint: typeof stored.videoEndpoint === 'string' ? stored.videoEndpoint : config.videoEndpoint || '',
-    timeoutMs: typeof stored.timeoutMs === 'number' ? stored.timeoutMs : config.timeoutMs || 120000,
-    videoTimeoutMs: typeof stored.videoTimeoutMs === 'number' ? stored.videoTimeoutMs : config.videoTimeoutMs || 600000,
+    imageProvider: String(readConfigValue(config, 'imageProvider', '')),
+    imageModel: String(readConfigValue(config, 'imageModel', '')),
+    imageEditProvider: String(readConfigValue(config, 'imageEditProvider', '')),
+    imageEditModel: String(readConfigValue(config, 'imageEditModel', '')),
+    videoProvider: String(readConfigValue(config, 'videoProvider', '')),
+    videoModel: String(readConfigValue(config, 'videoModel', '')),
+    videoEndpoint: String(readConfigValue(config, 'videoEndpoint', '')),
+    timeoutMs: readConfigNumber(config, 'timeoutMs', 120000),
+    videoTimeoutMs: readConfigNumber(config, 'videoTimeoutMs', 600000),
   }
 }
 
 async function writeConfig(ctx, patch) {
-  const settings = ensureSettings(ctx, {})
-  if (!settings || typeof settings.update !== 'function') {
-    throw new Error('settings service unavailable; edit cordis.yml config instead')
-  }
   const allowed = new Set([
     'imageProvider', 'imageModel',
     'imageEditProvider', 'imageEditModel',
@@ -432,7 +474,26 @@ async function writeConfig(ctx, patch) {
       clean[key] = String(patch[key] ?? '')
     }
   }
-  await settings.update(NS, clean)
+  if (Object.keys(clean).length === 0) return
+
+  // DSH >= 0.2.0: persist through the profile's config editor, which validates
+  // the whole candidate, preserves YAML comments and `!!js` expressions, and
+  // reconciles the live composition.
+  const editor = configEditorOf(ctx)
+  const entry = ctx.fiber?.entry
+  if (editor && typeof editor.edit === 'function' && entry != null) {
+    await editor.edit(entry, (current) => ({ ...current, ...clean }))
+    return
+  }
+
+  // Legacy core: the settings namespace owns the same values.
+  const settings = settingsOf(ctx)
+  if (settings && typeof settings.update === 'function') {
+    await settings.update(NS, clean)
+    return
+  }
+
+  throw new Error('no configuration writer is available; edit the profile cordis.patch.yml instead')
 }
 
 // ---------------------------------------------------------------------------
@@ -440,9 +501,8 @@ async function writeConfig(ctx, patch) {
 // ---------------------------------------------------------------------------
 
 async function providerSection(ctx, providerId) {
-  const settings = settingsOf(ctx)
-  const providers = settings?.get('llm-pi-ai')?.providers
-  if (!providers || typeof providers !== 'object') return null
+  const providers = llmProviders(ctx)
+  if (!providers) return null
   const p = providers[providerId]
   return p && typeof p === 'object' ? p : null
 }
@@ -499,9 +559,8 @@ async function fetchModels(baseURL, key, signal, timeoutMs) {
 }
 
 async function listProviders(ctx, { probe = false, signal } = {}) {
-  const settings = settingsOf(ctx)
-  const providers = settings?.get('llm-pi-ai')?.providers
-  if (!providers || typeof providers !== 'object') return []
+  const providers = llmProviders(ctx)
+  if (!providers) return []
   const catalog = await catalogBaseUrls()
   const out = []
   for (const [id, section] of Object.entries(providers)) {
@@ -741,7 +800,7 @@ async function saveMedia(ctx, exec, config, bytes, mime, ext, kind) {
 }
 
 async function resolveVideoResult(ctx, exec, config, provider, payload, signal) {
-  const timeoutMs = config.videoTimeoutMs || 600000
+  const timeoutMs = readConfigNumber(config, 'videoTimeoutMs', 600000)
   const baseURL = provider.baseURL
   const key = provider.key
   const rootBase = baseURL.replace(/\/v1\/?$/, '')
@@ -1063,7 +1122,7 @@ function registerRoutes(ctx, config) {
   }
 
   const displayHost =
-    (config.displayHost && config.displayHost.trim()) ||
+    (String(readConfigValue(config, 'displayHost', '')).trim()) ||
     `http://127.0.0.1:${ctx.webServer?.port ?? 3080}`
   const videoUrl = (saved) =>
     `${displayHost}/media-gen/raw/${encodeURIComponent(saved.name)}`
@@ -1263,35 +1322,11 @@ function renderProvidersReport(providers) {
 }
 
 export function apply(ctx, config = {}) {
-  // Serve the dsh-media-gen settings namespace. Without this, the settings UI
-  // reports "settings namespace 'dsh-media-gen' is not registered" and the
-  // section/card is hidden.
-  if (typeof ctx.inject === 'function') {
-    ctx.inject(['settings'], (sctx) => {
-      try {
-        sctx.settings.register(
-          NS,
-          Config,
-          {
-            base: {
-              outputDir: config.outputDir || 'media_gen',
-              imageProvider: config.imageProvider || '',
-              imageModel: config.imageModel || '',
-              imageEditProvider: config.imageEditProvider || '',
-              imageEditModel: config.imageEditModel || '',
-              videoProvider: config.videoProvider || '',
-              videoModel: config.videoModel || '',
-              videoEndpoint: config.videoEndpoint || '',
-              timeoutMs: config.timeoutMs || 120000,
-              videoTimeoutMs: config.videoTimeoutMs || 600000,
-            },
-          },
-        )
-      } catch (error) {
-        console.error(`[dsh-media-gen] settings namespace skipped: ${error}`)
-      }
-    })
-  }
+  // Declare how this plugin's configuration is presented. On DSH >= 0.2.0 the
+  // plugin renders its own settings page (client.js + /media-gen/config), so it
+  // opts out of the auto-generated form; older cores register the namespace so
+  // the settings UI can serve it.
+  configureSettingsPresentation(ctx, config)
 
   const routes = registerRoutes(ctx, config)
 

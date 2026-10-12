@@ -1,6 +1,6 @@
 {
   "name": "dsh-media-gen",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Generate images and videos in DSH chat via OpenAI-compatible providers configured in Model settings; dedicated Settings menu and workspace media_gen output.",
   "type": "module",
   "main": "index.js",
@@ -35,7 +35,7 @@
   },
   "homepage": "https://github.com/ant404/dsh-media-gen#readme",
   "peerDependencies": {
-    "@deepseek-ai/dsh-tools": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-tools": "^0.1.7-rc.2 || ^0.2.0-rc.1",
     "@deepseek-ai/schemastery": "^3.18.1"
   },
   "dsh": {

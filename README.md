@@ -13,14 +13,31 @@
 ## 安装
 
 ```sh
-# 推荐：从 GitHub 安装
+# 非桌面 profile：从 GitHub 安装
 dsh plugin --profile web add github:ant404/dsh-media-gen
 
 # 或本地目录安装（开发时）
 dsh plugin --profile web add "D:/sysdir/Documents/deepseek-harness-workspace/dsh-media-gen"
 ```
 
-安装后重启/刷新 DSH，进入 **设置 → 媒体生成**，为三种生成分别选择 Provider 和 Model，然后保存。
+桌面版（Electron）的 profile 由应用独占管理，`dsh plugin` 会拒绝写入（`profile "desktop" is managed exclusively by the Electron application`）。两种可行做法：
+
+1. **应用内安装**：设置 → 插件页安装本地目录（走 `plugin_manager` 的 `install_bundle`）。
+2. **手动等价步骤**：在 profile 的 `package.json` 里加依赖与 bundle 行，再装链接：
+
+   ```jsonc
+   // profiles/<name>/package.json
+   "dependencies": {
+     "dsh-media-gen": "link:D:/sysdir/Documents/deepseek-harness-workspace/dsh-media-gen"
+   },
+   "dsh": { "profile": { "bundles": [ /* … */ "dsh-media-gen" ] } }
+   ```
+
+   ```sh
+   pnpm install --prefer-offline    # 在 profile 目录内执行，建立 node_modules 链接
+   ```
+
+安装后重启 DSH（HMR 只重组合已加载的 bundle，不会加载新包），进入 **设置 → 媒体生成**，为三种生成分别选择 Provider 和 Model，然后保存。
 
 ## 使用
 
@@ -55,24 +72,36 @@ dsh plugin --profile web add "D:/sysdir/Documents/deepseek-harness-workspace/dsh
 - **左键点击图片**：放大查看，点背景或按 `Esc` 关闭。
 - **右键点击图片**：弹出「引用」菜单；点击后会把该图片的**本地文件路径**插入到对话输入框，方便接着做图生图/图生视频。
 
-## 配置项（也可写在 cordis.yml / 设置菜单）
+## 配置项（也可写在 profile 的 cordis.patch.yml）
 
 ```yaml
-dsh-media-gen:
-  # 输出目录已固定为 <当前工作区>/media_gen，该配置项不再生效
-  outputDir: media_gen
-  imageProvider: agnes-ai
-  imageModel: agnes-image-2.1-flash
-  imageEditProvider: agnes-ai
-  imageEditModel: agnes-image-2.1-flash
-  videoProvider: agnes-ai
-  videoModel: agnes-video-v2.0
-  videoEndpoint: ''             # 留空自动 /videos/generations → /videos
-  timeoutMs: 120000
-  videoTimeoutMs: 600000
+- id: dsh-media-gen
+  config:
+    # 输出目录已固定为 <当前工作区>/media_gen，该配置项不再生效
+    outputDir: media_gen
+    imageProvider: agnes-ai
+    imageModel: agnes-image-2.1-flash
+    imageEditProvider: agnes-ai
+    imageEditModel: agnes-image-2.1-flash
+    videoProvider: agnes-ai
+    videoModel: agnes-video-v2.0
+    videoEndpoint: ''             # 留空自动 /videos/generations → /videos
+    timeoutMs: 120000
+    videoTimeoutMs: 600000
 ```
 
-> Provider / Model 也可以直接在「设置 → 媒体生成」界面里选并保存，会写入 DSH settings，热生效。
+> Provider / Model 也可以直接在「设置 → 媒体生成」界面里选并保存，会写入当前 profile 的配置补丁，**热生效、无需重启**。
+
+## 与 DSH 版本的兼容性
+
+插件同时支持两代宿主配置机制：
+
+| 宿主版本 | 配置声明 | 配置读写 | Provider 来源 |
+| --- | --- | --- | --- |
+| **0.2.0 及以上**（含 `0.2.0-rc.2`） | Config 里可编辑字段标 `.volatile()`，配置表单由 DSH 从 Config 派生；插件用 `settings.configure({ auto: false })` 声明自绘设置页 | 读 `config.x.get()` 的实时引用；写 `configEditor.edit()`，校验后写入 profile 补丁并重新组合 | `configEditor.entries()` 找 `llm-pi-ai` 条目 |
+| 0.1.x（旧版） | `settings.register(namespace, schema, base)` | `settings.get(ns)` / `settings.update(ns, patch)` | `settings.get('llm-pi-ai')` |
+
+两条路径都在运行时自动选择，因此同一份代码在旧 profile 上仍然可用。
 
 ## 视频接口兼容说明
 
